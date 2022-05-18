@@ -1,0 +1,37 @@
+id: default
+groups: {}
+comments: []
+routes:
+  - id: default
+    name: Imperva_DAM
+    final: true
+    disabled: false
+    pipeline: Imperva_DAM_Pipeline
+    description: ""
+    clones: []
+    enableOutputExpression: false
+    outputExpression: null
+    filter: _raw.indexOf('Audit\.DAM') > -1
+    output: default
+  - id: JrpV2l
+    name: Imperva_WAF
+    final: true
+    disabled: false
+    pipeline: Imperva_WAF_Pipeline
+    description: ""
+    clones: []
+    enableOutputExpression: false
+    outputExpression: null
+    filter: _raw.indexOf('Incapsula') > -1
+    output: default
+  - id: D8YHhp
+    name: default
+    final: true
+    disabled: false
+    pipeline: main
+    description: ""
+    clones: []
+    enableOutputExpression: false
+    outputExpression: null
+    filter: "true"
+    output: default

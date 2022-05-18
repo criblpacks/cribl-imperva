@@ -1,0 +1,162 @@
+output: default
+groups: {}
+asyncFuncTimeout: 1000
+functions:
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >+
+        Description of all steps:
+
+        Function 2: Regex Extract: removes all CEF fields are the beginning of the event AND rebuilds the rest of the event as _raw
+
+        Function 3: Parser: easily extract all fields EXCEPT the CS fields. _raw is left alone, but it doesnt matter, as it will get rebuilt later
+
+        Function 4: Regex Extract: Complex regular expression to extract all cs key value pairs
+
+        Function 5: Eval: calculate difference between start and end fields incase it's needed
+
+        Function 6: Rename: rename all fields starting with cs.
+
+        Function 8: Serialize: Copy all interesting fields to be inside _raw, while leaving heavily searched fields outside _raw
+
+        Function 9: Eval: Remove the fields serialized in Function 5. Keep the fields that should be indexed
+
+        Function 10: Optional Parser to remove all null or empty fields
+
+
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: true
+      regex: /CEF:(?<cef_version>\d+)\|(?<cef_device_vendor>[^|]+)\|(?<cef_device_product>[^|]+)\|(?<cef_device_version>[^|]+)\|(?<cef_signature_id>[^|]+)\|(?<cef_name>[^|]+)\|(?<cef_severity>[^|]+)\|\s?(?<_raw>.*)/
+    description: Extract the CEF section information
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: extract
+      type: kvp
+      srcField: _raw
+      cleanFields: false
+      remove:
+        - cs*
+    description: Extract all non cs fields
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: false
+      regex: /(?<__keyName>\w+\d)=(?<_VALUE_0>.*?(?=(?:\s[\w.:\[\]]+=|$)))(?=.*?\b(?=\k<__keyName>)\k<__keyName>Label=(?<_NAME_0>.*?(?=(?:\s[\w.:\[\]]+=|$))))/g
+      fieldNameExpression: "`cs.${name}`"
+    description: Create KV from all cs fields
+  - id: eval
+    filter: "true"
+    disabled: null
+    conf:
+      add:
+        - name: totaltime
+          value: end - start
+    description: Calculate start to end
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >-
+        Enable the rename function below IF you want to remove cs.xxx from the
+        respective field names. 
+
+
+        Note that you will also need to update the subsequent serialize and eval functions to reference the new field names
+  - id: rename
+    filter: "true"
+    disabled: true
+    conf:
+      wildcardDepth: 5
+      rename: []
+      baseFields: []
+      renameExpr: "name.startsWith('cs.') ? name.slice(3) : name"
+    description: Remove the cs. from all such field names
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >-
+        For fields to serialize in next function, the last field should be a
+        wildcard. All fields to NOT serialize should be listed prior to the
+        final wildcard with an (!) to exclude.
+
+
+        Note: postbody field is being removed all together from _raw AND as an index-time field. If you want to keep that field, it's recommended to remove the !postbody entry from the serialize function.  Postbody should also NOT be an index-time field.
+  - id: serialize
+    filter: "true"
+    disabled: false
+    conf:
+      type: json
+      dstField: _raw
+      fields:
+        - "!_*"
+        - "!cribl_breaker"
+        - "!@"
+        - "!cef_name"
+        - "!cef_severity"
+        - "!app"
+        - "!cs.clapp"
+        - "!request"
+        - "!requestClientApplication"
+        - "!requestMethod"
+        - "!sourceServiceName"
+        - "!src"
+        - "!spt"
+        - "!xff"
+        - act
+        - "!ver"
+        - "!postbody"
+        - "!cn1"
+        - "!cpt"
+        - "*"
+      cleanFields: false
+    description: Populate raw with KV JSON
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      remove:
+        - "*"
+      keep:
+        - "@"
+        - cef_name
+        - cef_severity
+        - app
+        - cs.app
+        - request
+        - requestClientApplication
+        - requestMethod
+        - sourceServiceName
+        - src
+        - spt
+        - xff
+        - act
+        - _raw
+        - cribl*
+        - _time
+        - ver
+        - cn1
+        - cpt
+    description: Remove fields placed in _raw, noisy fields
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: reserialize
+      type: json
+      srcField: _raw
+      fieldFilterExpr: value !==null && value !== ''
+    description: Optionally remove null fields
+description: Imperva DAM optimization

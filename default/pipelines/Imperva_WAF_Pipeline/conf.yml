@@ -1,0 +1,262 @@
+output: default
+groups:
+  rXXq7n:
+    name: Extractions
+    index: 1
+  22rZMZ:
+    name: "GROUP A: Optimizations, Extras"
+    index: 3
+    disabled: false
+  qHIZek:
+    name: GROUP B
+    disabled: false
+    description: Heavily searched fields as extracted fields
+    index: 6
+  OCSxYW:
+    name: GROUP C
+    description: Everything in _raw
+    disabled: true
+    index: 8
+  1pYIZu:
+    name: "GROUP D: Optimization Post Serialization"
+    index: 10
+    disabled: false
+asyncFuncTimeout: 1000
+functions:
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >+
+        Description of all steps:
+
+        Function 2: Regex Extract: removes all CEF fields are the beginning of the event AND rebuilds the rest of the event as _raw
+
+        Function 3: Parser: easily extract all fields EXCEPT the CS fields. _raw is left alone, but it doesnt matter, as it will get rebuilt later
+
+        Function 4: Regex Extract: Complex regular expression to extract all cs key value pairs
+
+        Function 5: Eval: calculate difference between start and end fields incase it's needed
+
+        Function 6: Rename: rename all fields starting with cs.
+
+        Function 8: Serialize: Copy all interesting fields to be inside _raw, while leaving heavily searched fields outside _raw
+
+        Function 9: Eval: Remove the fields serialized in Function 5. Keep the fields that should be indexed
+
+        Function 10: Optional Parser to remove all null or empty fields
+
+
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: true
+      regex: /CEF:(?<cef_version>\d+)\|(?<cef_device_vendor>[^|]+)\|(?<cef_device_product>[^|]+)\|(?<cef_device_version>[^|]+)\|(?<cef_signature_id>[^|]+)\|(?<cef_name>[^|]+)\|(?<cef_severity>[^|]+)\|\s?(?<_raw>.*)/
+    description: Extract the CEF section information
+    groupId: rXXq7n
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: extract
+      type: kvp
+      srcField: _raw
+      cleanFields: false
+      remove:
+        - cs*
+    description: Extract all non cs fields
+    groupId: rXXq7n
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: false
+      regex: /(?<__csname>\w+\d)=(?<_VALUE_0>.*?(?=(?:\s[\w.:\[\]]+=|$)))(?=.*?\b(?=\k<__csname>)\k<__csname>Label=(?<_NAME_0>.*?(?=(?:\s[\w.:\[\]]+=|$))))/g
+      fieldNameExpression: "`cs_${name}`"
+    description: Create KV from all cs fields
+    groupId: rXXq7n
+  - id: eval
+    filter: "true"
+    disabled: null
+    conf:
+      add:
+        - name: host
+          value: sip
+        - name: sourcetype
+          value: "'imperva:waf'"
+        - name: source
+          value: "'Incapsula'"
+    description: Splunk Fields
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      add:
+        - name: totaltime
+          value: end - start
+    description: Calculate start to end
+    groupId: 22rZMZ
+  - id: eval
+    filter: src == xff
+    disabled: false
+    conf:
+      remove:
+        - xff
+    description: "Optimization: Remove xff field if the same as src field"
+    groupId: 22rZMZ
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      remove:
+        - postbody
+    description: "Optimization: Optionally remove postbody"
+    groupId: 22rZMZ
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: Enable B OR C, NOT both
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >-
+        GROUP B: Index time
+
+
+        For fields to serialize in next function, the last field should be a wildcard. All fields to NOT serialize should be listed prior to the final wildcard with an (!) to exclude.
+
+
+        Note: postbody field is large. You can save 20-30% by excluding or truncating that field. If you don't want the field, exclude it from being serialized. Add !postbody (case sensitive) to the list of fields to serialize. Place it BEFORE the final wildcard.
+
+
+        Also, postbody should NEVER be an index-time field.
+  - id: serialize
+    filter: "true"
+    disabled: false
+    conf:
+      type: kvp
+      fields:
+        - "!_*"
+        - "!cribl_breaker"
+        - "!@"
+        - "!cef_name"
+        - "!cef_severity"
+        - "!app"
+        - "!cs.clapp"
+        - "!request"
+        - "!requestClientApplication"
+        - "!requestMethod"
+        - "!sourceServiceName"
+        - "!src"
+        - "!spt"
+        - "!xff"
+        - act
+        - "!ver"
+        - "!cn1"
+        - "!cpt"
+        - "*"
+      dstField: _raw
+      cleanFields: false
+    description: Populate raw with Key=Value pairs
+    groupId: qHIZek
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      remove:
+        - "*"
+      keep:
+        - "@"
+        - cef_name
+        - cef_severity
+        - app
+        - cs.app
+        - request
+        - requestClientApplication
+        - requestMethod
+        - sourceServiceName
+        - src
+        - spt
+        - xff
+        - act
+        - _raw
+        - cribl*
+        - _time
+        - ver
+        - cn1
+        - cpt
+        - source
+        - sourcetype
+        - host
+    description: Remove fields placed in _raw, noisy fields
+    groupId: qHIZek
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: "GROUP B: Everything in _raw"
+  - id: serialize
+    filter: "true"
+    disabled: true
+    conf:
+      type: kvp
+      fields:
+        - "!_*"
+        - "!cribl*"
+        - "!source"
+        - "!sourcetype"
+        - "!host"
+        - "*"
+      dstField: _raw
+      cleanFields: true
+    groupId: OCSxYW
+  - id: eval
+    filter: "true"
+    disabled: true
+    conf:
+      add: []
+      keep:
+        - cribl*
+        - _time
+        - source
+        - host
+        - sourcetype
+      remove:
+        - "!_*"
+        - "*"
+    groupId: OCSxYW
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: "GROUP D: Post serialization optimization"
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: reserialize
+      type: kvp
+      srcField: _raw
+      cleanFields: false
+      fieldFilterExpr: value!=='' || value!==null || value!=="" || value !=='-' || value!=='NA'
+    description: "Optimization: Remove null, empty fields"
+    groupId: 1pYIZu
+  - id: mask
+    filter: "true"
+    disabled: false
+    conf:
+      rules:
+        - matchRegex: /\\\\\\\\/gm
+          replaceExpr: "'\\\\'"
+      fields:
+        - _raw
+    description: Post serialize optimizations Change \\\\ to \
+    groupId: 1pYIZu
+description: Imperva DAM optimization

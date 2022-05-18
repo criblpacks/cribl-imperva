@@ -1,0 +1,212 @@
+output: default
+groups:
+  oZdG0w:
+    name: Extractions
+    description: Extractions of CEF, CS, and non-CS fields
+    index: 3
+  CvKgb8:
+    name: Indexing of heavily searched fields
+    disabled: false
+    index: 6
+  J7caP1:
+    name: Barebones Indexed fields
+    disabled: true
+    index: 8
+asyncFuncTimeout: 1000
+functions:
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: Merge any multiline events (first things first)
+  - id: mask
+    filter: _raw.match(/[\n\r]/g).length > 1
+    disabled: null
+    conf:
+      rules:
+        - matchRegex: /[\n\r]/gm
+          replaceExpr: "' '"
+      fields:
+        - _raw
+    description: Multi-line to single line
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >+
+        GROUP A - Extractions Group:
+
+        Regex Extract: removes all CEF fields are the beginning of the event AND rebuilds the rest of the event as _raw
+
+        Parser: easily extract all fields EXCEPT the CS fields. _raw is left alone, but it doesnt matter, as it will get rebuilt later
+
+        Regex Extract: Complex regular expression to extract all cs key value pairs
+
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: true
+      regex: /(?<imperva_host>[^\s]+)\s+CEF:(?<cef_version>\d+)\|(?<cef_device_vendor>[^|]+)\|(?<cef_device_product>[^|]+)\|(?<cef_device_version>[^|]+)\|(?<cef_signature_id>[^|]+)\|(?<cef_name>[^|]+)\|(?<cef_severity>[^|]+)\|(?<_raw>.*)/
+    description: Extract the CEF section information
+    groupId: oZdG0w
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: extract
+      type: kvp
+      srcField: _raw
+      cleanFields: false
+      remove:
+        - cs*
+    description: Extract all non cs fields
+    groupId: oZdG0w
+  - id: regex_extract
+    filter: "true"
+    disabled: false
+    conf:
+      source: _raw
+      iterations: 100
+      overwrite: false
+      regex: /(?<__keyName>\w+\d)=(?<_VALUE_0>.*?(?=(?:\s[\w.:\[\]]+=|$)))(?=.*?\b(?=\k<__keyName>)\k<__keyName>Label=(?<_NAME_0>.*?(?=(?:\s[\w.:\[\]]+=|$))))/gm
+      fieldNameExpression: "`cs_${name}`"
+      regexList: []
+    description: Create KV from all cs fields
+    groupId: oZdG0w
+  - id: rename
+    filter: "true"
+    disabled: null
+    conf:
+      wildcardDepth: 5
+      rename:
+        - currentName: cef_name
+          newName: sourcetype
+        - currentName: imperva_host
+          newName: source
+        - currentName: cs_HostName
+          newName: host
+    description: Splunk fields
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: >
+        GROUP B - Index time conversion group: converts some fields to
+        index-time, everything else in _raw. Update the list for fields your
+        analyst search on the most
+
+
+        Serialize: Copy all interesting fields to be inside _raw, while leaving heavily searched fields outside _raw
+
+        Eval: Remove the fields serialized in Function 5. Keep the fields that should be indexed
+  - id: serialize
+    filter: "true"
+    disabled: false
+    conf:
+      type: kvp
+      fields:
+        - "!_*"
+        - "!cribl_breaker"
+        - "!cef_severity"
+        - "!source"
+        - "!sourcetype"
+        - "!host"
+        - "!cs_ParsedQuery"
+        - cs*
+        - cef*
+      dstField: _raw
+      cleanFields: false
+    description: Populate raw with KV
+    groupId: CvKgb8
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      remove:
+        - cs*
+        - "@*"
+        - cef*
+        - rt
+        - ti*
+        - dt*
+        - ba*
+        - bA*
+        - i*
+      keep: []
+    description: Remove extracted fields that were serialized into _raw in prior function.
+      Also removed unwanted & duplicative fields
+    groupId: CvKgb8
+  - id: comment
+    filter: "true"
+    disabled: null
+    conf:
+      comment: GROUP C - Barebones index-time fields ONLY. Enable this group or the
+        prior group, NOT both
+  - id: serialize
+    filter: "true"
+    disabled: true
+    conf:
+      type: kvp
+      fields:
+        - "!_*"
+        - "!cribl_breaker"
+        - "!cs_ParsedQuery"
+        - "!@*"
+        - "!rt"
+        - "!ti*"
+        - "!dt*"
+        - "!ba*"
+        - "!bA*"
+        - "!i*"
+        - "*"
+      dstField: _raw
+      cleanFields: false
+    description: "Serialize: Move all extracted fields to _raw EXCEPT those with ! at the
+      beginning."
+    groupId: J7caP1
+  - id: eval
+    filter: "true"
+    disabled: true
+    conf:
+      remove:
+        - "*"
+      keep:
+        - source
+        - host
+        - sourcetype
+        - _raw
+        - cribl_breaker
+        - _time
+    description: Remove extracted fields placed in _raw
+    groupId: J7caP1
+  - id: mask
+    filter: "true"
+    disabled: false
+    conf:
+      rules:
+        - matchRegex: /\s+=\s+/g
+          replaceExpr: "`=`"
+        - matchRegex: /,\s+\[/g
+          replaceExpr: "`,\\[`"
+      fields:
+        - _raw
+      flags: []
+    description: Remove all excess whitepsaces spaces, set host field
+  - id: serde
+    filter: "true"
+    disabled: false
+    conf:
+      mode: reserialize
+      type: kvp
+      srcField: _raw
+      cleanFields: false
+      fieldFilterExpr: value !==null && value !== ''
+      remove:
+        - host
+        - source
+        - sourcetype
+    description: Optionally remove null fields
+description: Imperva DAM optimization

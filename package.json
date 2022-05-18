@@ -1,0 +1,1 @@
+{"name":"cribl-imperva-security","version":"0.3.0","author":"Ahmed Kira - Cribl","description":"Pack for Imperva WAF (Incapsula Web Application Firewall) & DAM (Database Activity Monitoring) Logs","displayName":"Imperva Security Pack","tags":{"dataType":["logs"],"useCase":["reduction","filtering"]}}
